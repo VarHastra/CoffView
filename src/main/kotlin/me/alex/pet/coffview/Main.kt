@@ -34,8 +34,8 @@ private fun read(file: File) {
     try {
         readCoffFile(raf)
     } catch (e: IOException) {
-        println("Oooops... Something wen't wrong.")
-        println("The file has been damaged or has invalid format.")
+        println("Oooops... Something went wrong.")
+        println("The file has been damaged or has an invalid format.")
         exitProcess(3)
     } finally {
         try {
