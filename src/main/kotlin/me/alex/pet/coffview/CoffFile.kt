@@ -51,33 +51,44 @@ class CoffFile(private val source: File) {
 
     private fun parseSymbolNames() {
         file.seek(symbolTableOffset)
+        var numOfUpcomingAuxEntries = 0
         for (entryNumber in 0 until numberOfSymbolTableEntries) {
-            val symbolName = readSymbolNameFor(entryNumber)
+            if (numOfUpcomingAuxEntries > 0) {
+                numOfUpcomingAuxEntries--
+                continue
+            }
+            val entry = readEntryBytes(entryNumber)
+            numOfUpcomingAuxEntries = readNumOfAuxEntriesFor(entry)
+            val symbolName = readSymbolNameFor(entry)
             symbolNames.add(symbolName)
         }
     }
 
-    private fun readSymbolNameFor(entryNumber: Long): String {
+    private fun readEntryBytes(entryNumber: Long): ByteArray {
+        val entryBytes = ByteArray(18)
         val entryOffset = computeOffsetForSymbolTableEntry(entryNumber)
         file.seek(entryOffset)
-        val lowest4Bytes = file.read4Bytes()
+        file.read(entryBytes)
+        return entryBytes
+    }
+
+    private fun readNumOfAuxEntriesFor(entry: ByteArray): Int {
+        return entry[17].toInt() and 0xFF
+    }
+
+    private fun readSymbolNameFor(entry: ByteArray): String {
+        val lowest4Bytes = entry.read4BytesAt(0)
         return if (lowest4Bytes == 0L) {
-            val offsetWithinStringTable = file.read4Bytes()
+            val offsetWithinStringTable = entry.read4BytesAt(4)
             readStringTableEntry(offsetWithinStringTable)
         } else {
-            readImmediateName(entryOffset)
+            val nonNullBytes = entry.take(8).takeWhile { it != 0.toByte() }.toByteArray()
+            return String(nonNullBytes, Charsets.US_ASCII)
         }
     }
 
     private fun computeOffsetForSymbolTableEntry(entryNumber: Long): Long {
         return symbolTableOffset + entryNumber * SYMBOL_TABLE_ENTRY_SIZE_IN_BYTES
-    }
-
-    private fun readImmediateName(entryOffset: Long): String {
-        file.seek(entryOffset)
-        val symbolBytes = ByteArrayOutputStream(8)
-        file.transferTo(symbolBytes) { byte, numOfWrittenBytes -> byte != 0 && numOfWrittenBytes < 8 }
-        return symbolBytes.toString(Charsets.US_ASCII.name())
     }
 
     private fun readStringTableEntry(offsetWithinStringTable: Long): String {
@@ -101,6 +112,18 @@ private fun RandomAccessFile.read4Bytes(): Long {
         throw IOException()
     }
     return (fourth shl 24) or (third shl 16) or (second shl 8) or first
+}
+
+private fun ByteArray.read4BytesAt(offset: Int): Long {
+    var result = 0L
+    for (i in 0 until 4) {
+        result = result or (this.unsignedByteAt(offset + i) shl (8 * i))
+    }
+    return result
+}
+
+private fun ByteArray.unsignedByteAt(index: Int): Long {
+    return this[index].toLong() and 0xFF
 }
 
 private fun RandomAccessFile.transferTo(outputStream: OutputStream, condition: (Int, Int) -> Boolean) {
